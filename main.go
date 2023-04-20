@@ -6,15 +6,19 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/k3a/html2text"
 	"golang.org/x/sync/semaphore"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 )
 
-const regrexString = "<script type=\"application\\/ld\\+json\">(.+?)<\\/script>"
+const (
+	regrexString = "<script type=\"application\\/ld\\+json\">(.+?)<\\/script>"
+)
 
 func getDataFromUrl(url string) (string, error) {
 	res, err := http.Get(url)
@@ -34,7 +38,10 @@ func getDataFromUrl(url string) (string, error) {
 		return "", nil
 	}
 
-	return imgTags[1][1], nil
+	re := regexp.MustCompile(`<[^>]*>`)
+	text := re.ReplaceAllString(html2text.HTML2Text(imgTags[1][1]), "")
+
+	return text, nil
 }
 
 // <script type="application\/ld\+json">(.+?)<\/script>
@@ -59,7 +66,16 @@ func getDataDetail(slug string) ([][]string, error) {
 		return nil, nil
 	}
 
+	blockedString := []string{
+		"Check out our guides!",
+		"is Other game",
+	}
+
 	for _, ques := range listQuest {
+		if checkInBlock(ques.AcceptedAnswer.Text, blockedString) {
+			continue
+		}
+
 		var data []string
 		data = append(data, ques.Name)
 		data = append(data, ques.AcceptedAnswer.Text)
@@ -67,6 +83,15 @@ func getDataDetail(slug string) ([][]string, error) {
 	}
 
 	return dataList, nil
+}
+
+func checkInBlock(text string, blockedString []string) bool {
+	for _, sub := range blockedString {
+		if strings.Contains(text, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 func GetDataAll() []string {
@@ -106,7 +131,7 @@ func main() {
 	dtList := GetDataAll()
 	fmt.Println(dtList)
 
-	sem := semaphore.NewWeighted(10)
+	sem := semaphore.NewWeighted(100)
 	var dataCsv [][]string
 	for _, slug := range dtList {
 		err := sem.Acquire(context.Background(), 1)
